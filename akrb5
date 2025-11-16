@@ -1,0 +1,220 @@
+#!/usr/bin/env bash
+
+CONF_DIR="$HOME/akrb5"
+STATE_FILE="$CONF_DIR/active"
+mkdir -p "$CONF_DIR" 2>/dev/null
+
+# ===================== HELP =====================
+show_help() {
+    cat <<'EOH'
+
+   ░███    ░██     ░██ ░█████████  ░████████   ░████████ 
+  ░██░██   ░██    ░██  ░██     ░██ ░██    ░██  ░██       
+ ░██  ░██  ░██   ░██   ░██     ░██ ░██    ░██  ░███████  
+░█████████ ░███████    ░█████████  ░████████         ░██ 
+░██    ░██ ░██   ░██   ░██   ░██   ░██     ░██ ░██   ░██ 
+░██    ░██ ░██    ░██  ░██    ░██  ░██     ░██ ░██   ░██ 
+░██    ░██ ░██     ░██ ░██     ░██ ░█████████   ░██████ V1.2                                      
+By Aki | Quick krb5.conf manager for Active Directory
+
+Commands:
+  akrb5                     → status + list of labs
+  akrb5 <lab>               → activate lab (use 'source' to keep KRB5_CONFIG in your shell)
+  akrb5 create  <lab> <IP> <REALM>     → create a new lab
+  akrb5 add-dc  <lab> <IP> [REALM]     → add a DC
+  akrb5 remove-dc  <lab> <IP>          → remove a DC
+  akrb5 remove-realm <lab> <REALM>     → remove a realm
+  akrb5 delete <lab>                   → delete a lab completely
+  akrb5 import nxc-smb <lab> <file>   → parse NXC SMB output and auto-generate krb5.conf
+  akrb5 list                           → list available labs
+  akrb5 --help | -h | help             → show this help
+
+EOH
+    return 0
+}
+
+# ===================== FUNCTIONS =====================
+add_kdc() {
+    file="$1" realm="$2" ip="$3"
+    if ! grep -q "^[[:space:]]*$realm = {" "$file" 2>/dev/null; then
+        cat >> "$file" <<EOL
+
+    $realm = {
+        kdc = $ip:88
+        admin_server = $ip
+    }
+EOL
+        echo "   Added realm $realm → $ip"
+    else
+        if ! grep -q "kdc = $ip:" "$file"; then
+            sed -i "/^[[:space:]]*$realm = {/,/^[[:space:]]*}/ {
+                /^}/i\        kdc = $ip:88
+            }" "$file"
+            echo "   Added kdc = $ip:88 to realm $realm"
+        fi
+    fi
+}
+
+remove_dc() {
+    file="$1" ip="$2"
+    sed -i "/kdc = $ip:88/d" "$file" || true
+    echo "   Removed kdc = $ip:88"
+}
+
+remove_realm() {
+    file="$1" realm="$2"
+    sed -i "/^[[:space:]]*$realm = {/,/^[[:space:]]*}/d" "$file"
+    sed -i '/^[[:space:]]*$/d' "$file" || true
+    echo "   Removed realm $realm"
+}
+
+# ============================================================
+# Generate krb5.conf from `nxc smb` output
+# ============================================================
+generate_krb5_from_nxc() {
+    input="$1"
+    output="$2"
+
+    realms_tmp=$(mktemp)
+
+    while read -r line; do
+        case "$line" in
+            *domain:*)
+                ip=$(echo "$line" | awk '{print $2}')
+                domain=$(echo "$line" | sed -n 's/.*domain:\([^ )]*\).*/\1/p')
+                realm=$(echo "$domain" | tr '[:lower:]' '[:upper:]')
+                echo "$realm $ip" >> "$realms_tmp"
+                ;;
+        esac
+    done < "$input"
+
+    {
+        echo "[libdefaults]"
+        first_realm=$(awk '{print $1}' "$realms_tmp" | head -n1)
+        echo "    default_realm = $first_realm"
+        echo "    dns_lookup_realm = false"
+        echo "    dns_lookup_kdc = false"
+        echo "    ticket_lifetime = 24h"
+        echo "    forwardable = true"
+        echo
+        echo "[realms]"
+        echo
+
+        for realm in $(awk '{print $1}' "$realms_tmp" | sort -u); do
+            echo "    $realm = {"
+            grep "^$realm " "$realms_tmp" | awk '{print "        kdc = " $2 ":88"}'
+            first_ip=$(grep "^$realm " "$realms_tmp" | head -n1 | awk '{print $2}')
+            echo "        admin_server = $first_ip"
+            echo "    }"
+            echo
+        done
+
+        echo "[domain_realm]"
+        echo
+
+        for realm in $(awk '{print $1}' "$realms_tmp" | sort -u); do
+            domain=$(echo "$realm" | tr '[:upper:]' '[:lower:]')
+            echo "    .$domain = $realm"
+            echo "    $domain = $realm"
+            echo
+        done
+    } > "$output"
+
+    rm "$realms_tmp"
+    echo "✔ Generated: $output"
+}
+
+# ===================== MAIN =====================
+case "${1:-}" in
+
+    ""|current)
+        if [ -f "$STATE_FILE" ]; then
+            ACTIVE=$(cat "$STATE_FILE")
+            echo "Active → $(basename "$ACTIVE" .conf)"
+        else
+            echo "No active akrb5"
+        fi
+        echo
+        echo "Available labs:"
+        ls "$CONF_DIR"/*.conf 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/\.conf$//; s/^/   → /' | sort || echo "   (none)"
+        ;;
+
+    help|-h|--help) show_help ;;
+
+    create)
+        [ $# -lt 4 ] && { echo "Usage: akrb5 create <lab> <IP> <REALM>"; return 1; }
+        NAME="$2" IP="$3" REALM="$4"
+        FILE="$CONF_DIR/$NAME.conf"
+        cat > "$FILE" <<EOL
+[libdefaults]
+    default_realm = $REALM
+    dns_lookup_realm = false
+    dns_lookup_kdc = false
+    ticket_lifetime = 24h
+    forwardable = true
+
+[realms]
+    $REALM = {
+        kdc = $IP:88
+        admin_server = $IP
+    }
+EOL
+        echo "Created → $FILE"
+        ;;
+
+    add-dc)
+        [ $# -lt 3 ] && { echo "Usage: akrb5 add-dc <lab> <IP>"; return 1; }
+        NAME="$2" IP="$3" FILE="$CONF_DIR/$NAME.conf"
+        [ ! -f "$FILE" ] && { echo "$NAME.conf does not exist"; return 1; }
+        REALM=$(grep -m1 "default_realm" "$FILE" | awk -F' = ' '{print $2}')
+        add_kdc "$FILE" "$REALM" "$IP"
+        ;;
+
+    remove-dc)
+        [ $# -lt 3 ] && { echo "Usage: akrb5 remove-dc <lab> <IP>"; return 1; }
+        FILE="$CONF_DIR/$2.conf"; [ ! -f "$FILE" ] && { echo "$2.conf does not exist"; return 1; }
+        remove_dc "$FILE" "$3"
+        ;;
+
+    remove-realm)
+        [ $# -lt 3 ] && { echo "Usage: akrb5 remove-realm <lab> <REALM>"; return 1; }
+        FILE="$CONF_DIR/$2.conf"; [ ! -f "$FILE" ] && { echo "$2.conf does not exist"; return 1; }
+        remove_realm "$FILE" "$3"
+        ;;
+
+    delete)
+        [ $# -lt 2 ] && { echo "Usage: akrb5 delete <lab>"; return 1; }
+        rm -f "$CONF_DIR/$2.conf" && echo "Deleted $2.conf"
+        ;;
+
+    list)
+        echo "Available labs:"
+        ls "$CONF_DIR"/*.conf 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/\.conf$//; s/^/   → /' | sort || echo "   (none)"
+        ;;
+
+    import)
+        if [ "$2" = "nxc-smb" ]; then
+            [ $# -lt 4 ] && { echo "Usage: akrb5 import nxc-smb <lab> <file>"; return 1; }
+            NAME="$3"
+            INFILE="$4"
+            OUTFILE="$CONF_DIR/$NAME.conf"
+            generate_krb5_from_nxc "$INFILE" "$OUTFILE"
+        else
+            echo "Unknown import source: $2"
+            return 1
+        fi
+        ;;
+
+    *)
+        FILE="$CONF_DIR/$1.conf"
+        if [ -f "$FILE" ]; then
+            export KRB5_CONFIG="$FILE"
+            echo "$FILE" > "$STATE_FILE"
+            echo "Kerberos activated → $1 ($FILE)"
+        else
+            echo "$1.conf does not exist"
+            show_help
+            return 1
+        fi
+        ;;
+esac
