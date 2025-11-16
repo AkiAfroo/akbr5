@@ -1,6 +1,6 @@
 # akbr5 – Quick krb5.conf manager for Active Directory pentesting
-
-[![Version](https://img.shields.io/badge/version-1.0-blue)](#)
+![akrb5](https://i.imgur.com/ASNB2Z5.png)
+[![Version](https://img.shields.io/badge/version-1.2-blue)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 `akbr5` is a lightweight Bash tool that allows you to manage **multiple custom `krb5.conf` files** (one per lab, client or forest) without ever touching the system-wide `/etc/krb5.conf`.
