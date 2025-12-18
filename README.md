@@ -1,21 +1,25 @@
-# akbr5 – Quick krb5.conf manager for Active Directory pentesting
-![akrb5](https://i.imgur.com/ASNB2Z5.png)
-[![Version](https://img.shields.io/badge/version-1.2-blue)](#)
+```markdown
+# akrb5 – Quick krb5.conf manager for Active Directory pentesting
+
+![akrb5 banner](https://i.imgur.com/ASNB2Z5.png)
+
+[![Version](https://img.shields.io/badge/version-1.2-blue)](https://github.com/AkiAfroo/akrb5)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-`akbr5` is a lightweight Bash tool that allows you to manage **multiple custom `krb5.conf` files** (one per lab, client or forest) without ever touching the system-wide `/etc/krb5.conf`.
+`akrb5` is a lightweight Bash tool that lets you manage **multiple custom `krb5.conf` files** (one per lab, client, or forest) without ever modifying the system-wide `/etc/krb5.conf`.
 
-Designed by and for red teamers who live in Kerberos every day.
+Designed by and for red teamers who work with Kerberos on a daily basis.
 
 ---
 
-## Why akbr5?
+## Why use akrb5?
 
-- No more `sudo nano /etc/krb5.conf` when switching labs  
-- Instantly activate a lab with a single command  
-- Add/remove Domain Controllers on the fly  
-- Auto-import every domain & DC discovered with **netexec** (`nxc smb ...`)  
-- Keep dozens of environments cleanly organized in `~/akrb5/`  
+- No more `sudo nano /etc/krb5.conf` every time you switch labs
+- Activate a lab instantly with a single command
+- Add or remove Domain Controllers on the fly
+- Automatically import every domain and DC discovered with **netexec** (`nxc smb`)
+- Keep dozens of environments neatly organized in `~/akrb5/`
+- Fully compatible with Impacket, Kerbrute, Certipy, Rubeus, etc.
 
 ---
 
@@ -23,35 +27,34 @@ Designed by and for red teamers who live in Kerberos every day.
 
 ```bash
 # Recommended – one-liner
-sudo curl -fsSL https://raw.githubusercontent.com/AkiAfroo/akbr5/main/akrb5 -o /usr/local/bin/akbr5
-sudo chmod +x /usr/local/bin/akbr5
+sudo curl -fsSL https://raw.githubusercontent.com/AkiAfroo/akrb5/main/akrb5 -o /usr/local/bin/akrb5
+sudo chmod +x /usr/local/bin/akrb5
 
-# Or clone it
-git clone https://github.com/AkiAfroo/akbr5.git
-cd akbr5
-sudo ln -s "$PWD/akbr5" /usr/local/bin/akbr5
+# Alternative: clone the repository
+git clone https://github.com/AkiAfroo/akrb5.git
+cd akrb5
+sudo ln -s "$PWD/akrb5" /usr/local/bin/akrb5
 ```
 
-All configs are stored in `~/akrb5/`.
+All configuration files are stored in `~/akrb5/`.
 
 ---
 
 ## Usage
 
 ```bash
-akbr5                     # Show active lab + list all labs
-akbr5 corp                # Activate lab "corp"
-source akbr5 corp         # ← Recommended: keeps KRB5_CONFIG in current shell
+akrb5                          # Show active lab and list all available labs
+akrb5 <lab>                    # Activate lab (exports KRB5_CONFIG only for this session)
+source akrb5 <lab>              # ← Recommended: persists KRB5_CONFIG in current shell
 
-akbr5 create evilcorp 10.0.0.5 EVILCORP.LOCAL
-akbr5 add-dc evilcorp 10.0.0.6
-akbr5 remove-dc evilcorp 10.0.0.6
-
-akbr5 import nxc-smb customer1 nxc_output.txt   # ← Auto-generates krb5.conf from nxc/cme output
-
-akbr5 list
-akbr5 delete oldlab
-akbr5 --help | -h
+akrb5 create <lab> <IP> <REALM>                 # Create a new lab
+akrb5 add-dc <lab> <IP> [REALM]                  # Add a DC (uses default realm if not specified)
+akrb5 remove-dc <lab> <IP>                      # Remove a DC
+akrb5 remove-realm <lab> <REALM>                # Remove an entire realm
+akrb5 import nxc-smb <lab> <file>               # Auto-generate krb5.conf from nxc smb output
+akrb5 list                                      # List all labs
+akrb5 delete <lab>                              # Delete a lab completely
+akrb5 --help | -h | help                        # Show help
 ```
 
 ---
@@ -62,16 +65,16 @@ akbr5 --help | -h
 # 1. Scan the network
 nxc smb 172.16.0.0/16 -u '' -p '' > nxc.txt
 
-# 2. Auto-create perfect krb5.conf with every discovered domain/DC
-akbr5 import nxc-smb customer1 nxc.txt
+# 2. Auto-create a perfect krb5.conf with every discovered domain/DC
+akrb5 import nxc-smb customer1 nxc.txt
 
-# 3. Activate (use source!)
-source akbr5 customer1
+# 3. Activate the lab (use source!)
+source akrb5 customer1
 
 # 4. Kerberos attacks just work
-getTGT.py customer1.local/user
-kerbrute userenum -d customer1.local --dc dc01.customer1.local users.txt
-certipy find -u user@customer1.local -p Passw0rd!
+getTGT.py customer1.local/user -dc-ip 10.10.10.10
+kerbrute userenum -d customer1.local --dc 10.10.10.10 users.txt
+certipy find -u user@customer1.local -p 'Passw0rd!'
 ```
 
 ---
@@ -104,7 +107,9 @@ certipy find -u user@customer1.local -p Passw0rd!
 
 **Aki – @AkiAfroo**
 
-Feel free to open issues, PRs or just say hi!  
-MIT License – fork / improve / share ♥  
-⭐ Star if this saves you time during assessments!
+Feel free to open issues, send PRs, or just say hi!
 
+MIT License – fork, improve, and share ♥
+
+⭐ Star the repo if this saves you time during assessments!
+```
