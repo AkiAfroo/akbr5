@@ -23,7 +23,7 @@ Designed by and for red teamers who live in Kerberos every day.
 
 ```bash
 # Recommended – one-liner
-sudo curl -sL https://raw.githubusercontent.com/AkiAfroo/akbr5/main/akbr5 -o /usr/local/bin/akbr5
+sudo curl -sL https://raw.githubusercontent.com/AkiAfroo/akbr5/refs/heads/main/akrb5 -o /usr/local/bin/akbr5
 sudo chmod +x /usr/local/bin/akbr5
 
 # Or clone it
