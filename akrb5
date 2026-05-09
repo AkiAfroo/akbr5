@@ -56,30 +56,16 @@ EOL
             echo "   kdc = $ip:88 already exists in $realm, skipping"
             return 0
         fi
-        # Use Python to safely insert inside the correct realm block
-        python3 - "$file" "$realm" "$ip" <<'PYEOF'
-import sys, re
-
-fpath, realm, ip = sys.argv[1], sys.argv[2], sys.argv[3]
-with open(fpath) as f:
-    txt = f.read()
-
-pattern = re.compile(
-    r'([ \t]*' + re.escape(realm) + r'[ \t]*=[ \t]*\{[^}]*)\}',
-    re.MULTILINE
-)
-
-def inserter(m):
-    return m.group(1) + '        kdc = ' + ip + ':88\n    }'
-
-new_txt, n = pattern.subn(inserter, txt, count=1)
-if n == 0:
-    print(f"   WARNING: realm block for {realm} not found", file=sys.stderr)
-    sys.exit(1)
-
-with open(fpath, 'w') as f:
-    f.write(new_txt)
-PYEOF
+        # Insert the new kdc line before admin_server inside the correct realm block
+        # awk tracks which realm block we are in and inserts before admin_server
+        awk -v realm="$realm" -v ip="$ip" '
+            /^[[:space:]]*'"$realm"'[[:space:]]*=[[:space:]]*\{/ { in_realm=1 }
+            in_realm && /admin_server/ {
+                print "        kdc = " ip ":88"
+                in_realm=0
+            }
+            { print }
+        ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
         echo "   Added kdc = $ip:88 to realm $realm"
     fi
 }
@@ -96,34 +82,23 @@ remove_dc() {
 # Usage: remove_realm <file> <REALM>
 remove_realm() {
     local file="$1" realm="$2"
+    local domain
+    domain=$(echo "$realm" | tr '[:upper:]' '[:lower:]')
 
-    python3 - "$file" "$realm" <<'PYEOF'
-import sys, re
+    # Remove the realm block: from the realm header line up to and including its closing }
+    awk -v realm="$realm" '
+        /^[[:space:]]*'"$realm"'[[:space:]]*=[[:space:]]*\{/ { skip=1 }
+        skip && /^[[:space:]]*\}/ { skip=0; next }
+        !skip { print }
+    ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
 
-fpath, realm = sys.argv[1], sys.argv[2]
-with open(fpath) as f:
-    txt = f.read()
+    # Remove the domain_realm entries for this realm
+    sed -i "/[[:space:]]*\.$domain[[:space:]]*=[[:space:]]*$realm/d" "$file"
+    sed -i "/[[:space:]]*$domain[[:space:]]*=[[:space:]]*$realm/d" "$file"
 
-# Remove the realm block inside [realms]
-realm_block = re.compile(
-    r'[ \t]*' + re.escape(realm) + r'[ \t]*=[ \t]*\{[^}]*\}\n?',
-    re.MULTILINE
-)
-txt = realm_block.sub('', txt)
+    # Clean up consecutive blank lines
+    sed -i '/^$/N;/^\n$/d' "$file"
 
-# Remove matching domain_realm entries
-domain = realm.lower()
-dr_line = re.compile(
-    r'[ \t]*\.?' + re.escape(domain) + r'[ \t]*=[ \t]*' + re.escape(realm) + r'[ \t]*\n?'
-)
-txt = dr_line.sub('', txt)
-
-# Clean up consecutive blank lines
-txt = re.sub(r'\n{3,}', '\n\n', txt)
-
-with open(fpath, 'w') as f:
-    f.write(txt)
-PYEOF
     echo "   Removed realm $realm"
 }
 
