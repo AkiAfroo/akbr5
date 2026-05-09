@@ -26,7 +26,7 @@ Designed by and for red team operators who work with Kerberos on a daily basis.
 
 ```bash
 # Recommended (one-liner)
-sudo curl -fsSL https://raw.githubusercontent.com/AkiAfroo/akrb5/main/akrb5 -o /usr/local/bin/akrb5
+sudo curl -fsSL https://raw.githubusercontent.com/AkiAfroo/akbr5/refs/heads/main/akrb5 -o /usr/local/bin/akrb5
 sudo chmod +x /usr/local/bin/akrb5
 
 # Alternative: clone the repository
