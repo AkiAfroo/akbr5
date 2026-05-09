@@ -9,7 +9,7 @@ show_help() {
     if command -v kinit &>/dev/null; then
         echo "   krb5-user ✔ installed"
     else
-        echo "   krb5-user ✘ not found — install with: sudo apt install krb5-user"
+        echo "   krb5-user ✘ not found — install with: sudo apt install -y krb5-user libsasl2-modules-gssapi-mit"
     fi
     cat <<'EOH'
 
