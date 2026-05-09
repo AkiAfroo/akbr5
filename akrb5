@@ -182,6 +182,18 @@ generate_krb5_from_nxc() {
 case "${1:-}" in
 
     ""|current)
+        cat <<'BANNER'
+
+   ░███    ░██     ░██ ░█████████  ░████████   ░████████ 
+  ░██░██   ░██    ░██  ░██     ░██ ░██    ░██  ░██       
+ ░██  ░██  ░██   ░██   ░██     ░██ ░██    ░██  ░███████  
+░█████████ ░███████    ░█████████  ░████████         ░██ 
+░██    ░██ ░██   ░██   ░██   ░██   ░██     ░██ ░██   ░██ 
+░██    ░██ ░██    ░██  ░██    ░██  ░██     ░██ ░██   ░██ 
+░██    ░██ ░██     ░██ ░██     ░██ ░█████████   ░██████ V1.3
+By Aki | Quick krb5.conf manager for Active Directory
+
+BANNER
         if [ -f "$STATE_FILE" ]; then
             ACTIVE=$(cat "$STATE_FILE")
             echo "Active → $(basename "$ACTIVE" .conf)"
