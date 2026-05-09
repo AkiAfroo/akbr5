@@ -6,18 +6,6 @@ mkdir -p "$CONF_DIR" 2>/dev/null
 
 # ===================== HELP =====================
 show_help() {
-    cat <<'EOH'
-
-   ░███    ░██     ░██ ░█████████  ░████████   ░████████ 
-  ░██░██   ░██    ░██  ░██     ░██ ░██    ░██  ░██       
- ░██  ░██  ░██   ░██   ░██     ░██ ░██    ░██  ░███████  
-░█████████ ░███████    ░█████████  ░████████         ░██ 
-░██    ░██ ░██   ░██   ░██   ░██   ░██     ░██ ░██   ░██ 
-░██    ░██ ░██    ░██  ░██    ░██  ░██     ░██ ░██   ░██ 
-░██    ░██ ░██     ░██ ░██     ░██ ░█████████   ░██████ V1.3                                      
-By Aki | Quick krb5.conf manager for Active Directory
-
-EOH
     if command -v kinit &>/dev/null; then
         echo "   krb5-user ✔ installed"
     else
@@ -195,19 +183,20 @@ case "${1:-}" in
 By Aki | Quick krb5.conf manager for Active Directory
 
 BANNER
-        if [ -f "$STATE_FILE" ]; then
-            ACTIVE=$(cat "$STATE_FILE")
-            echo "Active → $(basename "$ACTIVE" .conf)"
-        else
-            echo "No active lab"
+        LABS=$(ls "$CONF_DIR"/*.conf 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/\.conf$//')
+        if [ -n "$LABS" ]; then
+            if [ -f "$STATE_FILE" ]; then
+                ACTIVE=$(cat "$STATE_FILE")
+                echo "Active → $(basename "$ACTIVE" .conf)"
+            else
+                echo "No active lab"
+            fi
+            echo
+            echo "Available labs:"
+            echo "$LABS" | sed 's/^/   → /' | sort
+            echo
         fi
-        echo
-        echo "Available labs:"
-        ls "$CONF_DIR"/*.conf 2>/dev/null \
-            | xargs -n1 basename 2>/dev/null \
-            | sed 's/\.conf$//; s/^/   → /' \
-            | sort \
-            || echo "   (none)"
+        show_help
         ;;
 
     help|-h|--help) show_help ;;
