@@ -62,7 +62,7 @@ akrb5 --help | -h | help             # Show help
 
 ```bash
 # 1. Scan the network
-nxc smb 172.16.0.0/16 -u '' -p '' > nxc.txt
+nxc smb 10.2.10.0/24 -u '' -p '' > nxc.txt
 
 # 2. Auto-create a krb5.conf with all discovered domains and DCs
 akrb5 import nxc-smb customer1 nxc.txt
