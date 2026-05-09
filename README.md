@@ -66,20 +66,58 @@ akrb5 --help | -h | help             # Show help
 
 ## Real engagement workflow
 
+### Option A — Import from netexec (recommended)
+
 ```bash
-# 1. Scan the network
+# 1. Scan the network and save the output
 nxc smb 10.2.10.0/24 -u '' -p '' > nxc.txt
 
 # 2. Auto-create a krb5.conf with all discovered domains and DCs
 akrb5 import nxc-smb contoso nxc.txt
 
-# 3. Activate the lab (use source to persist the environment)
+# 3. Activate the lab — always use 'source' so KRB5_CONFIG persists in your shell
+#    Without source, tools like Impacket and Certipy won't see the variable
 source akrb5 contoso
 
 # 4. Kerberos attacks just work
 getTGT.py contoso.local/user -dc-ip 10.10.10.10
 kerbrute userenum -d contoso.local --dc 10.10.10.10 users.txt
 certipy find -u user@contoso.local -p 'Passw0rd!'
+```
+
+### Option B — Build manually
+
+```bash
+# 1. Create the lab with the first DC
+akrb5 create contoso 10.10.10.10 CONTOSO.LOCAL
+
+# 2. Add more DCs as you discover them (default realm)
+akrb5 add-dc contoso 10.10.10.20
+
+# 3. Add a DC to a different realm (multi-forest)
+akrb5 add-dc contoso 10.10.20.10 SUBSIDIARY.LOCAL
+
+# 4. Activate
+source akrb5 contoso
+```
+
+### Day-to-day management
+
+```bash
+# Check which lab is active and list all available ones
+akrb5
+
+# Switch to a different lab
+source akrb5 otherlab
+
+# A DC went down or is out of scope — remove it
+akrb5 remove-dc contoso 10.10.10.20
+
+# Drop an entire realm from a lab
+akrb5 remove-realm contoso SUBSIDIARY.LOCAL
+
+# End of engagement — delete the lab
+akrb5 delete contoso
 ```
 
 ---
