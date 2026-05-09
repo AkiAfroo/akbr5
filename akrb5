@@ -17,6 +17,14 @@ show_help() {
 ░██    ░██ ░██     ░██ ░██     ░██ ░█████████   ░██████ V1.3                                      
 By Aki | Quick krb5.conf manager for Active Directory
 
+EOH
+    if command -v kinit &>/dev/null; then
+        echo "   krb5-user ✔ installed"
+    else
+        echo "   krb5-user ✘ not found — install with: sudo apt install krb5-user"
+    fi
+    cat <<'EOH'
+
 Commands:
   akrb5                                → status + list of labs
   akrb5 <lab>                          → activate lab (use 'source' to keep KRB5_CONFIG in your shell)
