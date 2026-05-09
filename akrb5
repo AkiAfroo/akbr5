@@ -14,18 +14,18 @@ show_help() {
 ░█████████ ░███████    ░█████████  ░████████         ░██ 
 ░██    ░██ ░██   ░██   ░██   ░██   ░██     ░██ ░██   ░██ 
 ░██    ░██ ░██    ░██  ░██    ░██  ░██     ░██ ░██   ░██ 
-░██    ░██ ░██     ░██ ░██     ░██ ░█████████   ░██████ V1.2                                      
+░██    ░██ ░██     ░██ ░██     ░██ ░█████████   ░██████ V1.3                                      
 By Aki | Quick krb5.conf manager for Active Directory
 
 Commands:
-  akrb5                     → status + list of labs
-  akrb5 <lab>               → activate lab (use 'source' to keep KRB5_CONFIG in your shell)
+  akrb5                                → status + list of labs
+  akrb5 <lab>                          → activate lab (use 'source' to keep KRB5_CONFIG in your shell)
   akrb5 create  <lab> <IP> <REALM>     → create a new lab
-  akrb5 add-dc  <lab> <IP> [REALM]     → add a DC
-  akrb5 remove-dc  <lab> <IP>          → remove a DC
-  akrb5 remove-realm <lab> <REALM>     → remove a realm
+  akrb5 add-dc  <lab> <IP> [REALM]     → add a DC (defaults to lab default_realm)
+  akrb5 remove-dc  <lab> <IP>          → remove a DC by IP
+  akrb5 remove-realm <lab> <REALM>     → remove a realm block
   akrb5 delete <lab>                   → delete a lab completely
-  akrb5 import nxc-smb <lab> <file>   → parse NXC SMB output and auto-generate krb5.conf
+  akrb5 import nxc-smb <lab> <file>    → parse NXC SMB output and auto-generate krb5.conf
   akrb5 list                           → list available labs
   akrb5 --help | -h | help             → show this help
 
@@ -34,9 +34,14 @@ EOH
 }
 
 # ===================== FUNCTIONS =====================
+
+# Add a KDC IP to a realm inside a krb5.conf file.
+# Usage: add_kdc <file> <REALM> <IP>
 add_kdc() {
-    file="$1" realm="$2" ip="$3"
+    local file="$1" realm="$2" ip="$3"
+
     if ! grep -q "^[[:space:]]*$realm = {" "$file" 2>/dev/null; then
+        # Realm does not exist yet — append a new block
         cat >> "$file" <<EOL
 
     $realm = {
@@ -46,25 +51,79 @@ add_kdc() {
 EOL
         echo "   Added realm $realm → $ip"
     else
-        if ! grep -q "kdc = $ip:" "$file"; then
-            sed -i "/^[[:space:]]*$realm = {/,/^[[:space:]]*}/ {
-                /^}/i\        kdc = $ip:88
-            }" "$file"
-            echo "   Added kdc = $ip:88 to realm $realm"
+        # Realm exists — add the KDC only if not already present
+        if grep -q "kdc = $ip:88" "$file"; then
+            echo "   kdc = $ip:88 already exists in $realm, skipping"
+            return 0
         fi
+        # Use Python to safely insert inside the correct realm block
+        python3 - "$file" "$realm" "$ip" <<'PYEOF'
+import sys, re
+
+fpath, realm, ip = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(fpath) as f:
+    txt = f.read()
+
+pattern = re.compile(
+    r'([ \t]*' + re.escape(realm) + r'[ \t]*=[ \t]*\{[^}]*)\}',
+    re.MULTILINE
+)
+
+def inserter(m):
+    return m.group(1) + '        kdc = ' + ip + ':88\n    }'
+
+new_txt, n = pattern.subn(inserter, txt, count=1)
+if n == 0:
+    print(f"   WARNING: realm block for {realm} not found", file=sys.stderr)
+    sys.exit(1)
+
+with open(fpath, 'w') as f:
+    f.write(new_txt)
+PYEOF
+        echo "   Added kdc = $ip:88 to realm $realm"
     fi
 }
 
+# Remove all kdc lines matching an IP from a krb5.conf file.
+# Usage: remove_dc <file> <IP>
 remove_dc() {
-    file="$1" ip="$2"
-    sed -i "/kdc = $ip:88/d" "$file" || true
+    local file="$1" ip="$2"
+    sed -i "/kdc = $ip:88/d" "$file"
     echo "   Removed kdc = $ip:88"
 }
 
+# Remove an entire realm block (and its domain_realm entries) from a krb5.conf file.
+# Usage: remove_realm <file> <REALM>
 remove_realm() {
-    file="$1" realm="$2"
-    sed -i "/^[[:space:]]*$realm = {/,/^[[:space:]]*}/d" "$file"
-    sed -i '/^[[:space:]]*$/d' "$file" || true
+    local file="$1" realm="$2"
+
+    python3 - "$file" "$realm" <<'PYEOF'
+import sys, re
+
+fpath, realm = sys.argv[1], sys.argv[2]
+with open(fpath) as f:
+    txt = f.read()
+
+# Remove the realm block inside [realms]
+realm_block = re.compile(
+    r'[ \t]*' + re.escape(realm) + r'[ \t]*=[ \t]*\{[^}]*\}\n?',
+    re.MULTILINE
+)
+txt = realm_block.sub('', txt)
+
+# Remove matching domain_realm entries
+domain = realm.lower()
+dr_line = re.compile(
+    r'[ \t]*\.?' + re.escape(domain) + r'[ \t]*=[ \t]*' + re.escape(realm) + r'[ \t]*\n?'
+)
+txt = dr_line.sub('', txt)
+
+# Clean up consecutive blank lines
+txt = re.sub(r'\n{3,}', '\n\n', txt)
+
+with open(fpath, 'w') as f:
+    f.write(txt)
+PYEOF
     echo "   Removed realm $realm"
 }
 
@@ -72,14 +131,16 @@ remove_realm() {
 # Generate krb5.conf from `nxc smb` output
 # ============================================================
 generate_krb5_from_nxc() {
-    input="$1"
-    output="$2"
+    local input="$1"
+    local output="$2"
 
+    local realms_tmp
     realms_tmp=$(mktemp)
 
     while read -r line; do
         case "$line" in
             *domain:*)
+                local ip domain realm
                 ip=$(echo "$line" | awk '{print $2}')
                 domain=$(echo "$line" | sed -n 's/.*domain:\([^ )]*\).*/\1/p')
                 realm=$(echo "$domain" | tr '[:lower:]' '[:upper:]')
@@ -88,8 +149,15 @@ generate_krb5_from_nxc() {
         esac
     done < "$input"
 
+    if [ ! -s "$realms_tmp" ]; then
+        echo "   No domains found in $input — is this nxc smb output?"
+        rm "$realms_tmp"
+        return 1
+    fi
+
     {
         echo "[libdefaults]"
+        local first_realm
         first_realm=$(awk '{print $1}' "$realms_tmp" | head -n1)
         echo "    default_realm = $first_realm"
         echo "    dns_lookup_realm = false"
@@ -100,24 +168,27 @@ generate_krb5_from_nxc() {
         echo "[realms]"
         echo
 
-        for realm in $(awk '{print $1}' "$realms_tmp" | sort -u); do
+        while read -r realm; do
             echo "    $realm = {"
             grep "^$realm " "$realms_tmp" | awk '{print "        kdc = " $2 ":88"}'
+            local first_ip
             first_ip=$(grep "^$realm " "$realms_tmp" | head -n1 | awk '{print $2}')
             echo "        admin_server = $first_ip"
             echo "    }"
             echo
-        done
+        done < <(awk '{print $1}' "$realms_tmp" | sort -u)
 
         echo "[domain_realm]"
         echo
 
-        for realm in $(awk '{print $1}' "$realms_tmp" | sort -u); do
+        while read -r realm; do
+            local domain
             domain=$(echo "$realm" | tr '[:upper:]' '[:lower:]')
             echo "    .$domain = $realm"
             echo "    $domain = $realm"
             echo
-        done
+        done < <(awk '{print $1}' "$realms_tmp" | sort -u)
+
     } > "$output"
 
     rm "$realms_tmp"
@@ -132,11 +203,15 @@ case "${1:-}" in
             ACTIVE=$(cat "$STATE_FILE")
             echo "Active → $(basename "$ACTIVE" .conf)"
         else
-            echo "No active akrb5"
+            echo "No active lab"
         fi
         echo
         echo "Available labs:"
-        ls "$CONF_DIR"/*.conf 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/\.conf$//; s/^/   → /' | sort || echo "   (none)"
+        ls "$CONF_DIR"/*.conf 2>/dev/null \
+            | xargs -n1 basename 2>/dev/null \
+            | sed 's/\.conf$//; s/^/   → /' \
+            | sort \
+            || echo "   (none)"
         ;;
 
     help|-h|--help) show_help ;;
@@ -145,6 +220,7 @@ case "${1:-}" in
         [ $# -lt 4 ] && { echo "Usage: akrb5 create <lab> <IP> <REALM>"; return 1; }
         NAME="$2" IP="$3" REALM="$4"
         FILE="$CONF_DIR/$NAME.conf"
+        DOMAIN=$(echo "$REALM" | tr '[:upper:]' '[:lower:]')
         cat > "$FILE" <<EOL
 [libdefaults]
     default_realm = $REALM
@@ -154,31 +230,44 @@ case "${1:-}" in
     forwardable = true
 
 [realms]
+
     $REALM = {
         kdc = $IP:88
         admin_server = $IP
     }
+
+[domain_realm]
+
+    .$DOMAIN = $REALM
+    $DOMAIN = $REALM
 EOL
         echo "Created → $FILE"
         ;;
 
     add-dc)
-        [ $# -lt 3 ] && { echo "Usage: akrb5 add-dc <lab> <IP>"; return 1; }
-        NAME="$2" IP="$3" FILE="$CONF_DIR/$NAME.conf"
+        [ $# -lt 3 ] && { echo "Usage: akrb5 add-dc <lab> <IP> [REALM]"; return 1; }
+        NAME="$2" IP="$3"
+        FILE="$CONF_DIR/$NAME.conf"
         [ ! -f "$FILE" ] && { echo "$NAME.conf does not exist"; return 1; }
-        REALM=$(grep -m1 "default_realm" "$FILE" | awk -F' = ' '{print $2}')
+        if [ -n "${4:-}" ]; then
+            REALM="$4"
+        else
+            REALM=$(grep -m1 "default_realm" "$FILE" | awk -F' = ' '{print $2}' | tr -d '[:space:]')
+        fi
         add_kdc "$FILE" "$REALM" "$IP"
         ;;
 
     remove-dc)
         [ $# -lt 3 ] && { echo "Usage: akrb5 remove-dc <lab> <IP>"; return 1; }
-        FILE="$CONF_DIR/$2.conf"; [ ! -f "$FILE" ] && { echo "$2.conf does not exist"; return 1; }
+        FILE="$CONF_DIR/$2.conf"
+        [ ! -f "$FILE" ] && { echo "$2.conf does not exist"; return 1; }
         remove_dc "$FILE" "$3"
         ;;
 
     remove-realm)
         [ $# -lt 3 ] && { echo "Usage: akrb5 remove-realm <lab> <REALM>"; return 1; }
-        FILE="$CONF_DIR/$2.conf"; [ ! -f "$FILE" ] && { echo "$2.conf does not exist"; return 1; }
+        FILE="$CONF_DIR/$2.conf"
+        [ ! -f "$FILE" ] && { echo "$2.conf does not exist"; return 1; }
         remove_realm "$FILE" "$3"
         ;;
 
@@ -189,7 +278,11 @@ EOL
 
     list)
         echo "Available labs:"
-        ls "$CONF_DIR"/*.conf 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/\.conf$//; s/^/   → /' | sort || echo "   (none)"
+        ls "$CONF_DIR"/*.conf 2>/dev/null \
+            | xargs -n1 basename 2>/dev/null \
+            | sed 's/\.conf$//; s/^/   → /' \
+            | sort \
+            || echo "   (none)"
         ;;
 
     import)
