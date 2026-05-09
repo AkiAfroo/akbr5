@@ -47,8 +47,8 @@ All configuration files are stored in `~/akrb5/`.
 
 ```bash
 akrb5                                # Show active lab and list all available labs
-akrb5 <lab>                          # Activate a lab (exports KRB5_CONFIG for this session)
-source akrb5 <lab>                   # Recommended: persist KRB5_CONFIG in the current shell
+source akrb5 <lab>                   # Recommended: persists KRB5_CONFIG in the current shell
+akrb5 <lab>                          # Activate lab for the current subshell only
 
 akrb5 create <lab> <IP> <REALM>      # Create a new lab (also generates [domain_realm])
 akrb5 add-dc <lab> <IP>              # Add a DC to the lab's default realm
