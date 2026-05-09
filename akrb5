@@ -27,7 +27,8 @@ EOH
 
 Commands:
   akrb5                                → status + list of labs
-  akrb5 <lab>                          → activate lab (use 'source' to keep KRB5_CONFIG in your shell)
+  source akrb5 <lab>                   → activate lab (persists KRB5_CONFIG in current shell) ← recommended
+  akrb5 <lab>                          → activate lab (only for current subshell)
   akrb5 create  <lab> <IP> <REALM>     → create a new lab
   akrb5 add-dc  <lab> <IP> [REALM]     → add a DC (defaults to lab default_realm)
   akrb5 remove-dc  <lab> <IP>          → remove a DC by IP
