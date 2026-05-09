@@ -164,8 +164,8 @@ akrb5 add-dc ops 10.10.10.20                     # adds a second DC to the defau
 ### v1.3
 - `add-dc` now accepts an optional `<REALM>` argument to target a realm other than `default_realm`
 - `create` now generates the `[domain_realm]` block automatically
-- Fixed `add_kdc`: safe multi-realm insertion via Python instead of fragile `sed` ranges
-- Fixed `remove_realm`: now cleanly removes the realm block and its `[domain_realm]` entries via Python
+- Fixed `add-dc`: safe insertion when the lab has multiple realms
+- Fixed `remove-realm`: now cleanly removes the realm block and its `[domain_realm]` entries
 
 ### v1.2
 - Initial public release
