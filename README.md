@@ -2,7 +2,7 @@
 
 ![akrb5 banner](https://i.imgur.com/ASNB2Z5.png)
 
-[![Version](https://img.shields.io/badge/version-1.3-blue)](https://github.com/AkiAfroo/akbr5)
+[![Version](https://img.shields.io/badge/version-1.5-blue)](https://github.com/AkiAfroo/akbr5)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 `akrb5` is a lightweight Bash utility that lets you manage **multiple custom `krb5.conf` files** — one per lab, client, or forest — without ever touching the system-wide `/etc/krb5.conf`.
@@ -17,8 +17,8 @@ Designed by and for red team operators who work with Kerberos on a daily basis.
 * Instantly switch labs with a single command
 * Add or remove Domain Controllers dynamically
 * Add DCs to any realm, not just the default one
-* Automatically import all domains and DCs discovered with **netexec** (`nxc smb`)
-* `create` now generates the `[domain_realm]` block automatically (required by Impacket, Certipy, etc.)
+* Automatically import all DCs discovered with **netexec** (`nxc ldap`) — no guessing, no heuristics
+* `create` generates the `[domain_realm]` block automatically (required by Impacket, Certipy, etc.)
 * Keep dozens of environments neatly organized under `~/akrb5/`
 * Fully compatible with Impacket, Kerbrute, Certipy, Rubeus, and related tooling
 
@@ -57,7 +57,7 @@ akrb5 remove-dc <lab> <IP>           # Remove a DC by IP
 akrb5 remove-realm <lab> <REALM>     # Remove an entire realm (and its domain_realm entries)
 akrb5 delete <lab>                   # Delete a lab completely
 
-akrb5 import nxc-smb <lab> <file>    # Generate krb5.conf from nxc smb output
+akrb5 import nxc-ldap <lab> <file>   # Generate krb5.conf from nxc ldap output
 akrb5 list                           # List all labs
 akrb5 --help | -h | help             # Show help
 ```
@@ -66,23 +66,25 @@ akrb5 --help | -h | help             # Show help
 
 ## Real engagement workflow
 
-### Option A — Import from netexec (recommended)
+### Option A — Import from netexec LDAP (recommended)
+
+LDAP (port 389) **only responds on Domain Controllers**. This makes `nxc ldap` the most reliable way to identify DCs — no heuristics, no guessing.
 
 ```bash
-# 1. Scan the network and save the output
-nxc smb 10.2.10.0/24 -u '' -p '' > nxc.txt
+# 1. Scan LDAP — see output live and save to file at the same time
+nxc ldap 10.2.10.0/24 | tee ldap.txt
 
-# 2. Auto-create a krb5.conf with all discovered domains and DCs
-akrb5 import nxc-smb contoso nxc.txt
+# 2. Auto-create a krb5.conf with all discovered DCs
+akrb5 import nxc-ldap contoso ldap.txt
 
 # 3. Activate the lab — always use 'source' so KRB5_CONFIG persists in your shell
 #    Without source, tools like Impacket and Certipy won't see the variable
 source akrb5 contoso
 
 # 4. Kerberos attacks just work
-getTGT.py contoso.local/user -dc-ip 10.10.10.10
-kerbrute userenum -d contoso.local --dc 10.10.10.10 users.txt
-certipy find -u user@contoso.local -p 'Passw0rd!'
+getTGT.py empire.local/user -dc-ip 10.2.10.5
+kerbrute userenum -d empire.local --dc 10.2.10.5 users.txt
+certipy find -u user@empire.local -p 'Passw0rd!'
 ```
 
 ### Option B — Build manually
@@ -126,7 +128,7 @@ akrb5 delete contoso
 
 ```ini
 [libdefaults]
-    default_realm = MEGACORP.LOCAL
+    default_realm = EMPIRE.LOCAL
     dns_lookup_realm = false
     dns_lookup_kdc = false
     ticket_lifetime = 24h
@@ -134,16 +136,23 @@ akrb5 delete contoso
 
 [realms]
 
-    MEGACORP.LOCAL = {
-        kdc = 10.10.10.10:88
-        kdc = 10.10.10.20:88
-        admin_server = 10.10.10.10
+    EMPIRE.LOCAL = {
+        kdc = 10.2.10.5:88
+        admin_server = 10.2.10.5
+    }
+
+    REBELS.LOCAL = {
+        kdc = 10.2.10.7:88
+        admin_server = 10.2.10.7
     }
 
 [domain_realm]
 
-    .megacorp.local = MEGACORP.LOCAL
-    megacorp.local  = MEGACORP.LOCAL
+    .empire.local = EMPIRE.LOCAL
+    empire.local  = EMPIRE.LOCAL
+
+    .rebels.local = REBELS.LOCAL
+    rebels.local  = REBELS.LOCAL
 ```
 
 ---
@@ -161,14 +170,17 @@ akrb5 add-dc ops 10.10.10.20                     # adds a second DC to the defau
 
 ## Changelog
 
-### v1.3
-- `add-dc` now accepts an optional `<REALM>` argument to target a realm other than `default_realm`
-- `create` now generates the `[domain_realm]` block automatically
-- Fixed `add-dc`: safe insertion when the lab has multiple realms
-- Fixed `remove-realm`: now cleanly removes the realm block and its `[domain_realm]` entries
+### v1.5
+- Replaced `import nxc-smb` with `import nxc-ldap`
+- LDAP responds only on Domain Controllers — no heuristics, no signing flags, no guessing
+- Cleaner and more reliable DC detection across any lab environment
+- Use `tee` to see scan output live while saving to file
 
-### v1.2
-- Initial public release
+### v1.3 – v1.4
+- `add-dc` accepts optional `<REALM>` to target a realm other than `default_realm`
+- `create` generates `[domain_realm]` block automatically
+- Fixed `add-dc`: safe insertion when the lab has multiple realms
+- Fixed `remove-realm`: cleanly removes realm block and `[domain_realm]` entries
 
 ---
 
