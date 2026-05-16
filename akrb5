@@ -22,7 +22,7 @@ Commands:
   akrb5 remove-dc  <lab> <IP>          → remove a DC by IP
   akrb5 remove-realm <lab> <REALM>     → remove a realm block
   akrb5 delete <lab>                   → delete a lab completely
-  akrb5 import nxc-smb <lab> <file>    → parse NXC SMB output and auto-generate krb5.conf
+  akrb5 import nxc-ldap <lab> <file>   → parse NXC LDAP output and auto-generate krb5.conf
   akrb5 list                           → list available labs
   akrb5 --help | -h | help             → show this help
 
@@ -54,7 +54,6 @@ EOL
             return 0
         fi
         # Insert the new kdc line before admin_server inside the correct realm block
-        # awk tracks which realm block we are in and inserts before admin_server
         awk -v realm="$realm" -v ip="$ip" '
             /^[[:space:]]*'"$realm"'[[:space:]]*=[[:space:]]*\{/ { in_realm=1 }
             in_realm && /admin_server/ {
@@ -82,27 +81,26 @@ remove_realm() {
     local domain
     domain=$(echo "$realm" | tr '[:upper:]' '[:lower:]')
 
-    # Remove the realm block: from the realm header line up to and including its closing }
     awk -v realm="$realm" '
         /^[[:space:]]*'"$realm"'[[:space:]]*=[[:space:]]*\{/ { skip=1 }
         skip && /^[[:space:]]*\}/ { skip=0; next }
         !skip { print }
     ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
 
-    # Remove the domain_realm entries for this realm
     sed -i "/[[:space:]]*\.$domain[[:space:]]*=[[:space:]]*$realm/d" "$file"
     sed -i "/[[:space:]]*$domain[[:space:]]*=[[:space:]]*$realm/d" "$file"
-
-    # Clean up consecutive blank lines
     sed -i '/^$/N;/^\n$/d' "$file"
 
     echo "   Removed realm $realm"
 }
 
 # ============================================================
-# Generate krb5.conf from `nxc smb` output
+# Generate krb5.conf from `nxc ldap` output
+# v1.5: LDAP only responds on DCs — no heuristics needed.
+#       Every host in the output is a confirmed DC.
+# Usage: generate_krb5_from_nxc_ldap <input_file> <output_file>
 # ============================================================
-generate_krb5_from_nxc() {
+generate_krb5_from_nxc_ldap() {
     local input="$1"
     local output="$2"
 
@@ -111,18 +109,19 @@ generate_krb5_from_nxc() {
 
     while read -r line; do
         case "$line" in
-            *domain:*)
-                local ip domain realm
+            *LDAP*domain:*)
+                local ip hostname domain realm
                 ip=$(echo "$line" | awk '{print $2}')
+                hostname=$(echo "$line" | sed -n 's/.*name:\([^ )]*\).*/\1/p')
                 domain=$(echo "$line" | sed -n 's/.*domain:\([^ )]*\).*/\1/p')
                 realm=$(echo "$domain" | tr '[:lower:]' '[:upper:]')
-                echo "$realm $ip" >> "$realms_tmp"
+                echo "$realm $ip $hostname" >> "$realms_tmp"
                 ;;
         esac
     done < "$input"
 
     if [ ! -s "$realms_tmp" ]; then
-        echo "   No domains found in $input — is this nxc smb output?"
+        echo "   No DCs found in $input — is this nxc ldap output?"
         rm "$realms_tmp"
         return 1
     fi
@@ -130,7 +129,7 @@ generate_krb5_from_nxc() {
     {
         echo "[libdefaults]"
         local first_realm
-        first_realm=$(awk '{print $1}' "$realms_tmp" | head -n1)
+        first_realm=$(awk '{print $1}' "$realms_tmp" | sort -u | head -n1)
         echo "    default_realm = $first_realm"
         echo "    dns_lookup_realm = false"
         echo "    dns_lookup_kdc = false"
@@ -142,10 +141,10 @@ generate_krb5_from_nxc() {
 
         while read -r realm; do
             echo "    $realm = {"
-            grep "^$realm " "$realms_tmp" | awk '{print "        kdc = " $2 ":88"}'
-            local first_ip
-            first_ip=$(grep "^$realm " "$realms_tmp" | head -n1 | awk '{print $2}')
-            echo "        admin_server = $first_ip"
+            awk -v r="$realm" '$1==r {print "        kdc = " $2 ":88"}' "$realms_tmp"
+            local admin_ip
+            admin_ip=$(awk -v r="$realm" '$1==r {print $2; exit}' "$realms_tmp")
+            echo "        admin_server = $admin_ip"
             echo "    }"
             echo
         done < <(awk '{print $1}' "$realms_tmp" | sort -u)
@@ -165,6 +164,22 @@ generate_krb5_from_nxc() {
 
     rm "$realms_tmp"
     echo "✔ Generated: $output"
+    echo
+
+    # Summary
+    echo "   Domain Controllers found:"
+    while read -r line; do
+        case "$line" in
+            *LDAP*domain:*)
+                local ip hostname domain
+                ip=$(echo "$line" | awk '{print $2}')
+                hostname=$(echo "$line" | sed -n 's/.*name:\([^ )]*\).*/\1/p')
+                domain=$(echo "$line" | sed -n 's/.*domain:\([^ )]*\).*/\1/p' | tr '[:lower:]' '[:upper:]')
+                printf "   %-15s %-12s %s  ✔\n" "$ip" "$hostname" "$domain"
+                ;;
+        esac
+    done < "$input"
+    echo
 }
 
 # ===================== MAIN =====================
@@ -179,7 +194,7 @@ case "${1:-}" in
 ░█████████ ░███████    ░█████████  ░████████         ░██ 
 ░██    ░██ ░██   ░██   ░██   ░██   ░██     ░██ ░██   ░██ 
 ░██    ░██ ░██    ░██  ░██    ░██  ░██     ░██ ░██   ░██ 
-░██    ░██ ░██     ░██ ░██     ░██ ░█████████   ░██████ V1.3
+░██    ░██ ░██     ░██ ░██     ░██ ░█████████   ░██████ V1.5
 By Aki | Quick krb5.conf manager for Active Directory
 
 BANNER
@@ -271,14 +286,16 @@ EOL
         ;;
 
     import)
-        if [ "$2" = "nxc-smb" ]; then
-            [ $# -lt 4 ] && { echo "Usage: akrb5 import nxc-smb <lab> <file>"; return 1; }
+        if [ "$2" = "nxc-ldap" ]; then
+            [ $# -lt 4 ] && { echo "Usage: akrb5 import nxc-ldap <lab> <file>"; return 1; }
             NAME="$3"
             INFILE="$4"
+            [ ! -f "$INFILE" ] && { echo "File not found: $INFILE"; return 1; }
             OUTFILE="$CONF_DIR/$NAME.conf"
-            generate_krb5_from_nxc "$INFILE" "$OUTFILE"
+            generate_krb5_from_nxc_ldap "$INFILE" "$OUTFILE"
         else
             echo "Unknown import source: $2"
+            echo "Usage: akrb5 import nxc-ldap <lab> <file>"
             return 1
         fi
         ;;
