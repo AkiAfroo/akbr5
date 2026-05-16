@@ -1,6 +1,6 @@
 # akrb5 – Quick `krb5.conf` Manager for Active Directory Pentesting
 
-![akrb5 banner](https://i.imgur.com/ASNB2Z5.png)
+![akrb5 banner](https://i.imgur.com/Z8myjpI.png) 
 
 [![Version](https://img.shields.io/badge/version-1.5-blue)](https://github.com/AkiAfroo/akbr5)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
